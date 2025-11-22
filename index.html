@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR & Barcode Scanner</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load QR Code Scanner Library (jsQR) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Configure Tailwind to use Inter font and custom colors -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary-blue': '#10b981', // Emerald 500
+                        'secondary-gray': '#f3f4f6', // Gray 100
+                        'dark-bg': '#1f2937', // Gray 800
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles for the app container */
+        .app-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Fixed positions for header and navigation */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 10;
+        }
+
+        /* Video placeholder style - ensuring it stays centered and has a fixed height for visual stability */
+        #video-preview {
+            width: 100%;
+            max-width: 400px;
+            height: 250px; /* Fixed height for consistent camera viewport */
+            background-color: #374151; /* Darker gray for the camera feed area */
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #d1d5db;
+            font-size: 1rem;
+            margin: 1.5rem auto 0; /* Center the block horizontally */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: relative; /* To position the video and canvas children correctly */
+        }
+        
+        #video-preview video, #video-preview canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 0.75rem;
+        }
+        
+        /* Visually appealing file upload box */
+        #upload-box {
+            border: 3px dashed #9ca3af;
+            background-color: #f9fafb;
+            /* Fixed height for the container to prevent layout shift */
+            height: 250px; 
+            border-radius: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            /* Flex center the placeholder content */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative; /* Crucial for absolute positioning of the image inside */
+            overflow: hidden; /* Ensure image doesn't bleed out */
+            max-width: 400px; /* Match video preview width */
+            margin: 0 auto; /* Center the box horizontally */
+        }
+
+        #upload-box:hover {
+            border-color: #10b981;
+            background-color: #ecfdf5;
+        }
+
+        /* Style for the image inside the upload box */
+        #uploaded-image-preview {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Ensures the whole image is visible within the box */
+            padding: 0.5rem; /* Small padding inside the box */
+            background-color: white;
+            border-radius: 0.75rem;
+        }
+
+        /* Hide the actual file input */
+        #file-input {
+            display: none;
+        }
+    </style>
+</head>
+<body class="app-container">
+
+    <!-- Header -->
+    <header class="header bg-primary-blue shadow-lg p-4">
+        <h1 class="text-2xl font-bold text-white text-center">QR & Barcode Scanner</h1>
+    </header>
+
+    <!-- 
+        Main Content Area 
+        pb-20 ensures there is enough space at the bottom for content 
+        to scroll above the fixed bottom navigation bar, resolving the overlap issue.
+    -->
+    <main id="main-content" class="flex-grow p-4 pb-20 overflow-y-auto">
+        <!-- Content will be injected here by JavaScript -->
+    </main>
+
+    <!-- Navigation/Footer -->
+    <nav class="navigation bg-white border-t border-gray-200 shadow-xl">
+        <div class="flex justify-around">
+            <button id="nav-scan-btn" onclick="showPage('scan')" class="flex-1 py-3 text-center transition-colors rounded-t-lg font-semibold text-gray-500 hover:bg-secondary-gray active-nav-tab">
+                <!-- Icon: Camera -->
+                <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.867-1.296A2 2 0 0111.126 3h1.748a2 2 0 011.664.89l.867 1.296A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                Scan
+            </button>
+            <button id="nav-scan-image-btn" onclick="showPage('upload')" class="flex-1 py-3 text-center transition-colors rounded-t-lg font-semibold text-gray-500 hover:bg-secondary-gray">
+                <!-- Icon: Photo/Image -->
+                <svg class="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                Scan Image
+            </button>
+        </div>
+    </nav>
+
+    <!-- Scanner Message Box (for general alerts/errors) -->
+    <div id="scanner-message" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4" onclick="this.classList.add('hidden')">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full" onclick="event.stopPropagation()">
+            <h3 id="message-title" class="text-xl font-bold mb-3 text-primary-blue">Result</h3>
+            <p id="message-content" class="text-gray-700 mb-4 break-all"></p>
+            <button onclick="document.getElementById('scanner-message').classList.add('hidden')" class="w-full bg-primary-blue text-white py-2 rounded-lg font-semibold hover:bg-emerald-600 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Result Page Overlay (Full-screen view for successful scan) -->
+    <div id="result-page" class="fixed inset-0 bg-white z-20 hidden flex-col">
+        <header class="bg-primary-blue shadow-lg p-4 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-white">Scan Result</h2>
+            <button onclick="closeResultPage()" class="text-white hover:text-gray-200 transition-colors p-1 rounded-full">
+                <!-- Close Icon (X) -->
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </header>
+        
+        <!-- Notification Toast for Copy/Share feedback (Appears within the result screen) -->
+        <div id="result-toast" class="absolute top-16 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-xl opacity-0 transition-opacity duration-300 pointer-events-none z-30">
+            Copied to clipboard!
+        </div>
+
+        <section class="flex-grow p-6 overflow-y-auto">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">Decoded Content:</h3>
+            <div class="bg-secondary-gray p-4 rounded-lg shadow-inner break-words">
+                <p id="final-result-data" class="text-gray-800 font-mono text-base"></p>
+            </div>
+            
+            <p id="result-type" class="mt-4 text-sm text-gray-500"></p>
+        </section>
+
+        <footer class="p-4 border-t border-gray-100 flex justify-around gap-4 shadow-2xl">
+            <button id="open-btn" onclick="openResult()" class="flex-1 bg-primary-blue text-white py-3 rounded-xl font-bold text-base shadow-md transition-colors flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                <!-- Icon: External Link -->
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                Open
+            </button>
+            <button onclick="copyResult()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-base shadow-md hover:bg-gray-300 transition-colors flex items-center justify-center gap-2">
+                <!-- Icon: Copy -->
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 01.293.707V19a2 2 0 01-2 2H6a2 2 0 01-2-2v-1M18 9a1 1 0 00-1-1h-2a1 1 0 00-1 1v4a1 1 0 001 1h2a1 1 0 001-1V9z"></path></svg>
+                Copy
+            </button>
+            <button onclick="shareResult()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-base shadow-md hover:bg-gray-300 transition-colors flex items-center justify-center gap-2">
+                <!-- Icon: Share -->
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.88 12.016 9 10.748 9 10c0-1.099-.187-2.17-.497-3.176M18 11a6 6 0 00-6-6v2a4 4 0 014 4h2M12 2a10 10 0 0110 10c0 1.25-.11 2.48-.32 3.66L18 19l-4-4"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18a6 6 0 006-6h-2a4 4 0 01-4 4v2M12 22a10 10 0 01-10-10c0-1.25.11-2.48.32-3.66L6 5l4 4"></path></svg>
+                Share
+            </button>
+        </footer>
+    </div>
+
+
+    <script>
+        let currentPage = 'scan'; 
+        const mainContent = document.getElementById('main-content');
+        const navScanBtn = document.getElementById('nav-scan-btn');
+        const navScanImageBtn = document.getElementById('nav-scan-image-btn');
+        const messageBox = document.getElementById('scanner-message');
+        const messageTitle = document.getElementById('message-title');
+        const messageContent = document.getElementById('message-content');
+        
+        let videoStream = null;
+        let isScanning = false;
+        let canvasElement = null;
+        let canvasContext = null;
+        let lastScanData = ""; // Global variable to store the last successful scan data
+
+        /**
+         * Utility to display a custom modal message instead of alert().
+         * @param {string} title - The title of the message.
+         * @param {string} content - The content/body of the message.
+         */
+        function showMessage(title, content) {
+            messageTitle.textContent = title;
+            messageContent.textContent = content;
+            messageBox.classList.remove('hidden');
+            messageBox.classList.add('flex');
+        }
+        
+        /**
+         * Shows a transient toast notification on the result page.
+         * @param {string} message - The message to display.
+         */
+        function showResultToast(message) {
+            const toast = document.getElementById('result-toast');
+            if (toast) {
+                toast.textContent = message;
+                toast.classList.remove('opacity-0');
+                toast.classList.add('opacity-100');
+                
+                // Automatically hide the toast after 2 seconds
+                setTimeout(() => {
+                    toast.classList.remove('opacity-100');
+                    toast.classList.add('opacity-0');
+                }, 2000); 
+            }
+        }
+
+
+        /**
+         * Clears the current content and renders the content for the specified page.
+         * @param {string} page - The page to display ('scan' or 'upload').
+         */
+        function showPage(page) {
+            currentPage = page;
+            mainContent.innerHTML = '';
+            
+            // If the user navigates away from the scan page, stop the camera
+            if (page !== 'scan' && isScanning) {
+                stopScanning(false); // Don't show message if navigating away
+            }
+            
+            // Close any open result page
+            closeResultPage();
+
+            // Update navigation button active state
+            navScanBtn.classList.remove('border-b-4', 'border-primary-blue', 'text-primary-blue');
+            navScanImageBtn.classList.remove('border-b-4', 'border-primary-blue', 'text-primary-blue');
+            navScanBtn.classList.add('text-gray-500');
+            navScanImageBtn.classList.add('text-gray-500');
+
+
+            if (page === 'scan') {
+                navScanBtn.classList.add('border-b-4', 'border-primary-blue', 'text-primary-blue');
+
+                // --- SCAN PAGE CONTENT ---
+                mainContent.innerHTML = `
+                    <div class="text-center p-4">
+                        <p class="text-lg text-gray-600 mb-6">Point your camera at a QR or Barcode to scan.</p>
+                        
+                        <!-- Video Placeholder/Element -->
+                        <div id="video-preview">
+                            <!-- Video and Canvas will share the same space/size inside this container -->
+                            <video id="video" class="hidden" autoplay playsinline></video>
+                            <canvas id="qr-canvas" class="hidden"></canvas>
+                            <p id="video-placeholder">Tap 'Start Scanning'</p>
+                        </div>
+                        
+                        <div class="mt-8 flex flex-col items-center">
+                            <button id="start-scan-btn" onclick="startScanning()" class="w-full max-w-xs bg-primary-blue text-white py-3 px-8 rounded-full shadow-lg hover:bg-emerald-600 transition-colors font-bold text-lg">
+                                Start Scanning
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                // Get canvas elements for live scanning
+                canvasElement = document.getElementById('qr-canvas');
+                canvasContext = canvasElement.getContext('2d', { willReadFrequently: true });
+
+            } else if (page === 'upload') {
+                navScanImageBtn.classList.add('border-b-4', 'border-primary-blue', 'text-primary-blue');
+
+                // --- SCAN IMAGE PAGE CONTENT ---
+                mainContent.innerHTML = `
+                    <div class="p-4 flex flex-col items-center">
+                        <p class="text-lg text-gray-600 mb-8 text-center">Select an image file from your device to scan for codes.</p>
+                        
+                        <input type="file" id="file-input" accept="image/*">
+
+                        <label for="file-input" id="upload-box" class="w-full max-w-md text-center text-gray-500 hover:text-primary-blue transition-colors">
+                            <div id="upload-placeholder" class="p-4">
+                                <!-- Icon: Cloud Upload -->
+                                <svg class="w-16 h-16 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 014 4v2a3 3 0 00-3 3h-3a3 3 0 01-3-3v-2m-2-4l-3 3m0 0l-3-3m3 3V7"></path></svg>
+                                <span class="block text-xl font-semibold">Upload Image</span>
+                                <span class="block text-sm mt-1">Tap here or drag and drop a file (JPEG, PNG)</span>
+                            </div>
+                            <!-- Image preview is now inside the box, hidden initially, and absolutely positioned -->
+                            <img id="uploaded-image-preview" class="hidden absolute" alt="Uploaded image preview">
+                        </label>
+                        
+                        <div class="mt-6 w-full max-w-md">
+                            <button id="process-image-btn" onclick="processImage()" class="w-full bg-gray-400 text-white py-3 rounded-full font-bold text-lg cursor-not-allowed" disabled>
+                                Process Image Code
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Set up event listener for file input after it's rendered
+                const fileInput = document.getElementById('file-input');
+                fileInput.addEventListener('change', handleFileUpload);
+            }
+        }
+
+        /**
+         * Stops the camera and resets the UI state.
+         * @param {boolean} showMsg - Whether to display a 'Scanner Stopped' message.
+         */
+        function stopScanning(showMsg = true) {
+            const video = document.getElementById('video');
+            const placeholder = document.getElementById('video-placeholder');
+            const scanBtn = document.getElementById('start-scan-btn');
+            
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+            }
+            if (video) video.classList.add('hidden');
+            // Hide canvas too
+            if (canvasElement) canvasElement.classList.add('hidden'); 
+            if (placeholder) placeholder.classList.remove('hidden');
+            
+            isScanning = false;
+            if (scanBtn) {
+                scanBtn.textContent = 'Start Scanning';
+                scanBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                scanBtn.classList.add('bg-primary-blue', 'hover:bg-emerald-600');
+            }
+            if (showMsg) {
+                showMessage('Scanner Stopped', 'Camera feed closed.');
+            }
+        }
+
+        function drawLine(ctx, begin, end, color) {
+            ctx.beginPath();
+            ctx.moveTo(begin.x, begin.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+        }
+
+        /**
+         * Continuous loop to read video frames, draw to canvas, and scan for QR codes.
+         */
+        function tick() {
+            if (!isScanning) return;
+            
+            const video = document.getElementById('video');
+            
+            // Set canvas size to match video feed size
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Ensure canvas is visible while video is playing
+                canvasElement.classList.remove('hidden'); 
+                video.classList.add('hidden');
+
+                canvasElement.height = video.videoHeight;
+                canvasElement.width = video.videoWidth;
+
+                // Draw the video frame onto the canvas
+                canvasContext.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+                
+                // Get the image data for jsQR
+                let imageData = canvasContext.getImageData(0, 0, canvasElement.width, canvasElement.height);
+                
+                // Use jsQR to scan the image data
+                let code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+                
+                if (code) {
+                    // QR Code Found!
+                    
+                    // Highlight the bounding box on the canvas
+                    drawLine(canvasContext, code.location.topLeftCorner, code.location.topRightCorner, "#FF3B58");
+                    drawLine(canvasContext, code.location.topRightCorner, code.location.bottomRightCorner, "#FF3B58");
+                    drawLine(canvasContext, code.location.bottomRightCorner, code.location.bottomLeftCorner, "#FF3B58");
+                    drawLine(canvasContext, code.location.bottomLeftCorner, code.location.topLeftCorner, "#FF3B58");
+                    
+                    // Display result in the full-screen view
+                    showResultPage(code.data);
+                    
+                    // Stop scanning after a successful read
+                    stopScanning(false);
+
+                } else {
+                    // No QR Code Found in this frame - redraw a simple black box if no code found
+                    canvasContext.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                    canvasContext.fillRect(0, 0, canvasElement.width, canvasElement.height);
+                }
+            }
+
+            requestAnimationFrame(tick);
+        }
+
+
+        function startScanning() {
+            const video = document.getElementById('video');
+            const placeholder = document.getElementById('video-placeholder');
+            const scanBtn = document.getElementById('start-scan-btn');
+            
+            if (isScanning) {
+                stopScanning(true);
+                return;
+            }
+            
+            // Start Scanning logic
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(stream => {
+                        videoStream = stream;
+                        video.srcObject = stream;
+                        
+                        // Wait for video to load metadata to get dimensions
+                        video.onloadedmetadata = () => {
+                            video.play();
+                            isScanning = true;
+                            // video.classList.remove('hidden'); // Video is hidden, canvas is shown
+                            placeholder.classList.add('hidden');
+                            scanBtn.textContent = 'Stop Scanning';
+                            scanBtn.classList.remove('bg-primary-blue', 'hover:bg-emerald-600');
+                            scanBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+
+                            // Start the continuous scanning loop
+                            tick();
+                        };
+                    })
+                    .catch(error => {
+                        console.error("Error accessing camera:", error);
+                        showMessage('Camera Access Denied', 'Unable to start camera. Please check your permissions and refresh.');
+                        scanBtn.disabled = true;
+                    });
+            } else {
+                showMessage('Browser Not Supported', 'Your browser does not support media devices required for live scanning.');
+                scanBtn.disabled = true;
+            }
+        }
+
+
+        // --- Image Scanning Logic (Using jsQR on a static image) ---
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            const preview = document.getElementById('uploaded-image-preview');
+            const placeholder = document.getElementById('upload-placeholder');
+            const processBtn = document.getElementById('process-image-btn');
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.classList.remove('hidden');
+                    placeholder.classList.add('hidden'); 
+                    processBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                    processBtn.classList.add('bg-primary-blue', 'hover:bg-emerald-600');
+                    processBtn.disabled = false;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                preview.classList.add('hidden');
+                placeholder.classList.remove('hidden'); 
+                preview.src = '';
+                processBtn.classList.remove('bg-primary-blue', 'hover:bg-emerald-600');
+                processBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
+                processBtn.disabled = true;
+            }
+        }
+
+        function processImage() {
+            const processBtn = document.getElementById('process-image-btn');
+            const imageElement = document.getElementById('uploaded-image-preview');
+
+            processBtn.textContent = 'Processing...';
+            processBtn.disabled = true;
+
+            // 1. Create a temporary canvas
+            const tempCanvas = document.createElement('canvas');
+            const ctx = tempCanvas.getContext('2d');
+
+            // 2. Wait for the image to ensure it's fully loaded and has dimensions
+            if (!imageElement.complete || imageElement.naturalWidth === 0) {
+                // If not loaded, attach a one-time listener
+                imageElement.onload = () => scanImageFromCanvas(imageElement, tempCanvas, ctx, processBtn);
+            } else {
+                scanImageFromCanvas(imageElement, tempCanvas, ctx, processBtn);
+            }
+        }
+
+        function scanImageFromCanvas(imageElement, tempCanvas, ctx, processBtn) {
+            
+            // Set canvas dimensions to match the image
+            tempCanvas.width = imageElement.naturalWidth;
+            tempCanvas.height = imageElement.naturalHeight;
+
+            // Draw the image onto the canvas
+            ctx.drawImage(imageElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Get the image data
+            let imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Use jsQR to scan
+            let code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+            });
+            
+            if (code) {
+                showResultPage(code.data);
+            } else {
+                showMessage('Scan Failed', 'No QR or Barcode was detected in the uploaded image.');
+            }
+
+            // Re-enable button regardless of success/failure
+            processBtn.textContent = 'Process Image Code';
+            processBtn.disabled = false;
+            processBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            processBtn.classList.add('bg-primary-blue', 'hover:bg-emerald-600');
+        }
+
+        /**
+         * Shows the full-screen result page with the scanned data.
+         * @param {string} data - The decoded QR/Barcode data.
+         */
+        function showResultPage(data) {
+            lastScanData = data;
+            const resultPage = document.getElementById('result-page');
+            const dataDisplay = document.getElementById('final-result-data');
+            const resultType = document.getElementById('result-type');
+            const openBtn = document.getElementById('open-btn');
+
+            dataDisplay.textContent = data;
+
+            // Determine the type of data (simple URL heuristic)
+            const isUrl = data.startsWith('http://') || data.startsWith('https://');
+            resultType.textContent = isUrl ? 'Type: Web Address (URL)' : 'Type: Plain Text / Data';
+            
+            // Enable/Disable Open button based on URL validity
+            openBtn.disabled = !isUrl;
+            openBtn.classList.toggle('bg-primary-blue', isUrl);
+            openBtn.classList.toggle('hover:bg-emerald-600', isUrl);
+            openBtn.classList.toggle('bg-gray-400', !isUrl);
+        
+            resultPage.classList.remove('hidden');
+            resultPage.classList.add('flex');
+        }
+
+        /**
+         * Closes the full-screen result page.
+         */
+        function closeResultPage() {
+            const resultPage = document.getElementById('result-page');
+            resultPage.classList.add('hidden');
+            resultPage.classList.remove('flex');
+        }
+        
+        /**
+         * Attempts to open the scanned result in a new browser tab if it's a URL.
+         */
+        function openResult() {
+            if (lastScanData && (lastScanData.startsWith('http://') || lastScanData.startsWith('https://'))) {
+                window.open(lastScanData, '_blank');
+            } else {
+                showMessage('Cannot Open', 'The scanned data is not a valid web URL.');
+            }
+        }
+
+        /**
+         * Copies the scanned result to the clipboard and shows a toast notification on the result page.
+         */
+        function copyResult() {
+            if (lastScanData) {
+                // Use the execCommand('copy') method for reliable copying in sandboxed environments (like iframes)
+                const tempInput = document.createElement('textarea');
+                tempInput.value = lastScanData;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                try {
+                    document.execCommand('copy');
+                    showResultToast('Copied to clipboard!'); // Show toast on result page
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                    showResultToast('Copy failed. Manual copy required.');
+                }
+                document.body.removeChild(tempInput);
+            }
+        }
+
+        /**
+         * Shares the scanned result using the Web Share API (navigator.share).
+         */
+        function shareResult() {
+            if (!lastScanData) {
+                showResultToast('No data to share.');
+                return;
+            }
+
+            if (navigator.share) {
+                // Attempt to share the data
+                navigator.share({
+                    title: 'QR/Barcode Scan Result',
+                    text: 'Scanned content: ' + lastScanData,
+                    url: (lastScanData.startsWith('http') ? lastScanData : undefined) // Only include URL if it is one
+                }).then(() => {
+                    // Success is handled by the OS
+                }).catch((error) => {
+                    // Handle user cancellation (AbortError) or other errors
+                    if (error.name !== 'AbortError') {
+                        console.error('Error sharing:', error);
+                        showResultToast('Sharing failed.');
+                    }
+                });
+            } else {
+                // Fallback for browsers without Web Share API
+                showMessage('Sharing Not Supported', 'Your device or browser does not support the Web Share API. Please use the "Copy" button instead.');
+            }
+        }
+
+
+        // Initialize the app to the 'scan' page
+        window.onload = () => {
+            showPage('scan');
+        };
+
+    </script>
+</body>
+</html>
